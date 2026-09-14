@@ -11,7 +11,8 @@ src/
 │   ├── crawl_products.py       # 무신사 상품 메타데이터
 │   └── select_images.py        # 무신사 상세 이미지 선택·S3 업로드
 └── ably/
-    └── README.md               # 에이블리 파이프라인 위치
+    ├── crawl_products.py       # 에이블리 상품 메타데이터
+    └── README.md               # 에이블리 실행 방법
 
 data/
 ├── musinsa/tops/
@@ -59,3 +60,15 @@ work/.venv/bin/python -m src.musinsa.select_images \
 ```
 
 에이블리는 `src/ably/`에 독립 구현하고 저장 경로와 S3 key는 각각 `data/ably/`, `ably/products/`를 사용합니다.
+
+## 에이블리 실행
+
+에이블리는 공개 목록의 상품 링크를 수집한 다음, 각 상품 페이지의 Open Graph/product
+메타데이터를 정규화합니다. `--listing-url`에는 에이블리에서 확인한 카테고리·랭킹·검색
+결과 URL을 넣을 수 있습니다.
+
+```bash
+work/.venv/bin/python -m src.ably.crawl_products --max-products 20
+work/.venv/bin/python -m src.ably.crawl_products \
+  --listing-url 'https://mobile.a-bly.com/...' --category-keyword 상의
+```
