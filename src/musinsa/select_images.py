@@ -26,8 +26,8 @@ import torch
 from PIL import Image
 from transformers import AutoImageProcessor, SegformerForSemanticSegmentation
 
-from musinsa_crawler import Fetcher, NEXT_DATA_RE
-from preprocess_tops import DEFAULT_MODEL, infer_mask, label_ids_for_tops, select_device
+from src.common.http import Fetcher, NEXT_DATA_RE
+from src.common.human_parser import DEFAULT_MODEL, label_ids_for_tops, select_device
 
 
 IMAGE_BASE = "https://image.msscdn.net"
@@ -36,8 +36,8 @@ HUMAN_LABELS = {"face", "hair", "arms", "hands", "legs", "feet"}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Crawl and select Musinsa detail images")
-    parser.add_argument("--products", type=Path, default=Path("data/musinsa_tops/products.csv"))
-    parser.add_argument("--output", type=Path, default=Path("data/musinsa_tops/selected"))
+    parser.add_argument("--products", type=Path, default=Path("data/musinsa/tops/products.csv"))
+    parser.add_argument("--output", type=Path, default=Path("data/musinsa/tops/selected"))
     parser.add_argument("--limit", type=int, help="maximum new products to process")
     parser.add_argument("--goods-no", help="process only one goods_no")
     parser.add_argument("--start-after", help="skip rows through this goods_no")
@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-threshold", type=float, default=0.05)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--s3-bucket", default=os.getenv("MUSINSA_S3_BUCKET"))
-    parser.add_argument("--s3-prefix", default="products")
+    parser.add_argument("--s3-prefix", default="musinsa/products")
     parser.add_argument("--s3-endpoint-url", default=os.getenv("S3_ENDPOINT_URL"))
     return parser.parse_args()
 
@@ -275,6 +275,7 @@ def process_product(
         upload_s3(s3_client, args.s3_bucket, local_path, s3_key)
 
     return {
+        "platform": "musinsa",
         "goods_no": goods_no,
         "product_url": product_url,
         "selected_index": index,

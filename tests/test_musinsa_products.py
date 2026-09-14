@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from musinsa_crawler import append_rows, load_seen, parse_api_page, parse_initial_page
+from src.musinsa.crawl_products import append_rows, load_seen, parse_api_page, parse_initial_page
 
 
 PAYLOAD = {
@@ -44,12 +44,12 @@ class ParserTest(unittest.TestCase):
             csv_path = Path(directory) / "products.csv"
             jsonl_path = Path(directory) / "products.jsonl"
             row = {
-                "goods_no": "123", "goods_name": "티셔츠", "brand_id": "brand",
+                "platform": "musinsa", "goods_no": "123", "goods_name": "티셔츠", "brand_id": "brand",
                 "brand_name": "브랜드", "gender": "공용", "normal_price": 10000,
                 "price": 9000, "final_price": 9000, "sale_rate": 10,
                 "sold_out": False, "review_count": 0, "review_score": 0,
                 "product_url": "https://example/product", "thumbnail_url": "https://example/image.jpg",
-                "image_path": "images/123.jpg", "crawled_at": "2026-01-01T00:00:00+0900",
+                "crawled_at": "2026-01-01T00:00:00+0900",
             }
             append_rows(csv_path, jsonl_path, [row])
             self.assertEqual({"123"}, load_seen(csv_path))

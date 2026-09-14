@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from crawl_detail_images import parse_gallery_urls, save_result
+from src.musinsa.select_images import parse_gallery_urls, save_result
 
 
 class DetailParserTest(unittest.TestCase):

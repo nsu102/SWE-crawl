@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crawl Musinsa tops metadata and thumbnail images.
+"""Crawl Musinsa tops product metadata.
 
 The crawler starts from the public category page, extracts its embedded Next.js
 data, and follows the signed ``nextPageUrl`` returned by Musinsa.
@@ -10,32 +10,20 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import random
-import re
-import sys
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from src.common.http import Fetcher, NEXT_DATA_RE
 
 
 CATEGORY_URL = "https://www.musinsa.com/category/001/goods?gf=A"
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-)
-NEXT_DATA_RE = re.compile(
-    rb'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL
-)
 CSV_FIELDS = [
-    "goods_no", "goods_name", "brand_id", "brand_name", "gender",
+    "platform", "goods_no", "goods_name", "brand_id", "brand_name", "gender",
     "normal_price", "price", "final_price", "sale_rate", "sold_out",
     "review_count", "review_score", "product_url", "thumbnail_url",
-    "image_path", "crawled_at",
+    "crawled_at",
 ]
 
 
@@ -46,32 +34,6 @@ class Page:
     total_pages: int
     total_count: int
     next_url: str | None
-
-
-class Fetcher:
-    def __init__(self, timeout: float, retries: int) -> None:
-        self.timeout = timeout
-        self.retries = retries
-
-    def get(self, url: str, *, referer: str | None = None) -> bytes:
-        headers = {
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7",
-        }
-        if referer:
-            headers["Referer"] = referer
-        last_error: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                with urlopen(Request(url, headers=headers), timeout=self.timeout) as response:
-                    return response.read()
-            except (HTTPError, URLError, TimeoutError) as exc:
-                last_error = exc
-                if attempt >= self.retries:
-                    break
-                time.sleep(min(2 ** attempt, 20) + random.random())
-        raise RuntimeError(f"request failed after {self.retries + 1} attempts: {url}") from last_error
 
 
 def _find_product_query(next_data: dict[str, Any]) -> dict[str, Any]:
@@ -114,13 +76,11 @@ def page_from_payload(payload: dict[str, Any]) -> Page:
     )
 
 
-def normalize(item: dict[str, Any], image_dir: Path) -> dict[str, Any]:
+def normalize(item: dict[str, Any]) -> dict[str, Any]:
     goods_no = str(item["goodsNo"])
     image_url = item["thumbnail"]
-    suffix = Path(image_url.split("?", 1)[0]).suffix.lower()
-    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-        suffix = ".jpg"
     return {
+        "platform": "musinsa",
         "goods_no": goods_no,
         "goods_name": item.get("goodsName", ""),
         "brand_id": item.get("brand", ""),
@@ -135,7 +95,6 @@ def normalize(item: dict[str, Any], image_dir: Path) -> dict[str, Any]:
         "review_score": item.get("reviewScore"),
         "product_url": item.get("goodsLinkUrl", f"https://www.musinsa.com/products/{goods_no}"),
         "thumbnail_url": image_url,
-        "image_path": str(image_dir / f"{goods_no}{suffix}"),
         "crawled_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
 
@@ -163,60 +122,25 @@ def append_rows(csv_path: Path, jsonl_path: Path, rows: Iterable[dict[str, Any]]
             jsonl_stream.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def download_one(fetcher: Fetcher, row: dict[str, Any], overwrite: bool) -> tuple[str, str | None]:
-    path = Path(row["image_path"])
-    if path.exists() and path.stat().st_size > 0 and not overwrite:
-        return row["goods_no"], None
-    try:
-        data = fetcher.get(row["thumbnail_url"], referer=CATEGORY_URL)
-        if len(data) < 100 or data[:16].lstrip().startswith((b"<", b"{")):
-            raise ValueError("response does not look like an image")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + f".{threading.get_ident()}.part")
-        temp.write_bytes(data)
-        temp.replace(path)
-        return row["goods_no"], None
-    except Exception as exc:  # keep crawling; report individual image failures
-        return row["goods_no"], str(exc)
-
-
-def download_batch(
-    fetcher: Fetcher, rows: list[dict[str, Any]], workers: int, overwrite: bool
-) -> list[tuple[str, str]]:
-    failures: list[tuple[str, str]] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(download_one, fetcher, row, overwrite) for row in rows]
-        for future in as_completed(futures):
-            goods_no, error = future.result()
-            if error:
-                failures.append((goods_no, error))
-    return failures
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Download Musinsa tops thumbnails and metadata")
-    parser.add_argument("--output", type=Path, default=Path("data/musinsa_tops"))
+    parser = argparse.ArgumentParser(description="Crawl Musinsa tops metadata")
+    parser.add_argument("--output", type=Path, default=Path("data/musinsa/tops"))
     parser.add_argument("--max-pages", type=int, default=None, help="omit to crawl every page")
     parser.add_argument("--max-products", type=int, default=None)
-    parser.add_argument("--workers", type=int, default=8, help="parallel image downloads")
     parser.add_argument("--delay", type=float, default=1.0, help="seconds between list requests")
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--retries", type=int, default=3)
-    parser.add_argument("--metadata-only", action="store_true")
-    parser.add_argument("--overwrite-images", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if args.workers < 1 or args.delay < 0:
-        raise SystemExit("--workers must be >= 1 and --delay must be >= 0")
+    if args.delay < 0:
+        raise SystemExit("--delay must be >= 0")
 
     output = args.output.resolve()
-    image_dir = output / "images"
     csv_path = output / "products.csv"
     jsonl_path = output / "products.jsonl"
-    failures_path = output / "failures.jsonl"
     checkpoint_path = output / "checkpoint.json"
     output.mkdir(parents=True, exist_ok=True)
 
@@ -231,23 +155,15 @@ def main() -> int:
 
     while True:
         page_count += 1
-        rows = [normalize(item, image_dir) for item in page.products]
+        rows = [normalize(item) for item in page.products]
         rows = [row for row in rows if row["goods_no"] not in seen]
         if args.max_products is not None:
             rows = rows[: max(0, args.max_products - saved_this_run)]
 
-        failures: list[tuple[str, str]] = []
-        if rows and not args.metadata_only:
-            failures = download_batch(fetcher, rows, args.workers, args.overwrite_images)
         append_rows(csv_path, jsonl_path, rows)
         for row in rows:
             seen.add(row["goods_no"])
         saved_this_run += len(rows)
-
-        if failures:
-            with failures_path.open("a", encoding="utf-8") as stream:
-                for goods_no, error in failures:
-                    stream.write(json.dumps({"goods_no": goods_no, "error": error}, ensure_ascii=False) + "\n")
 
         checkpoint_path.write_text(json.dumps({
             "last_page": page.page,
@@ -257,7 +173,7 @@ def main() -> int:
         }, ensure_ascii=False, indent=2), encoding="utf-8")
         print(
             f"page {page.page}/{page.total_pages}: +{len(rows)} products "
-            f"({len(failures)} image failures, {len(seen)} unique total)", flush=True
+            f"({len(seen)} unique total)", flush=True
         )
 
         reached_limit = (
@@ -266,18 +182,12 @@ def main() -> int:
         )
         if reached_limit or not page.next_url:
             break
-        time.sleep(args.delay + random.uniform(0, min(0.3, args.delay)))
+        time.sleep(args.delay)
         page = parse_api_page(fetcher.get(page.next_url, referer=CATEGORY_URL))
 
     print(f"Done. Metadata: {csv_path}", flush=True)
-    if not args.metadata_only:
-        print(f"Images: {image_dir}", flush=True)
     return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except KeyboardInterrupt:
-        print("\nInterrupted; saved pages remain resumable.", file=sys.stderr)
-        raise SystemExit(130)
+    raise SystemExit(main())
