@@ -16,7 +16,6 @@ import json
 import mimetypes
 import os
 import time
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -54,28 +53,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-class _ImageSourceParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.urls: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() != "img":
-            return
-        values = dict(attrs)
-        url = values.get("src") or values.get("data-src") or values.get("data-original")
-        if url:
-            self.urls.append(url)
-
-
-def _content_image_urls(html: str | None) -> list[str]:
-    if not html:
-        return []
-    parser = _ImageSourceParser()
-    parser.feed(html)
-    return [urljoin(IMAGE_BASE, url) for url in parser.urls]
-
-
 def parse_gallery_urls(body: bytes, thumbnail_url: str | None = None) -> list[str]:
     match = NEXT_DATA_RE.search(body)
     if not match:
@@ -84,13 +61,11 @@ def parse_gallery_urls(body: bytes, thumbnail_url: str | None = None) -> list[st
     page_props = document["props"]["pageProps"]
     product = page_props.get("meta", {}).get("data", {})
     gallery = product.get("goodsImages")
-    goods_contents = product.get("goodsContents")
     if gallery is None:
         for query in page_props.get("dehydratedState", {}).get("queries", []):
             candidate = query.get("state", {}).get("data", {}).get("data", {})
             if candidate.get("goodsImages") is not None:
                 gallery = candidate["goodsImages"]
-                goods_contents = goods_contents or candidate.get("goodsContents")
                 break
 
     urls: list[str] = []
@@ -100,10 +75,6 @@ def parse_gallery_urls(body: bytes, thumbnail_url: str | None = None) -> list[st
         url = item.get("imageUrl") if isinstance(item, dict) else None
         if url:
             urls.append(urljoin(IMAGE_BASE, url))
-    # Seller-authored images rendered lower in "상품 상세정보". These often
-    # contain the flat-lay/product-only cut even when the top carousel does not.
-    urls.extend(_content_image_urls(goods_contents))
-
     # Keep gallery order but avoid downloading a repeated URL.
     return list(dict.fromkeys(urls))
 
@@ -229,7 +200,6 @@ def process_product(
 
     candidates: list[dict[str, Any]] = []
     selected: tuple[int, str, Image.Image, float, float, np.ndarray] | None = None
-    fallback: tuple[float, tuple[int, str, Image.Image, float, float, np.ndarray]] | None = None
 
     for index, url in enumerate(urls):
         body = fetcher.get(url, referer=product_url)
@@ -246,28 +216,30 @@ def process_product(
         if human_ratio <= args.human_threshold and top_ratio >= args.top_threshold:
             selected = current
             break
-        fallback_score = top_ratio - (human_ratio * 2.0)
-        if fallback is None or fallback_score > fallback[0]:
-            fallback = (fallback_score, current)
-
     if selected is None:
-        if fallback is None:
-            raise ValueError("no decodable gallery image")
-        selected = fallback[1]
-        used_fallback = True
-    else:
-        used_fallback = False
+        return {
+            "platform": "musinsa",
+            "goods_no": goods_no,
+            "product_url": product_url,
+            "status": "no_match",
+            "selected_index": None,
+            "selected_url": None,
+            "local_path": None,
+            "s3_bucket": args.s3_bucket,
+            "s3_key": None,
+            "human_ratio": None,
+            "top_ratio": None,
+            "mask_path": None,
+            "checked_images": candidates,
+            "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "model": args.model,
+        }
 
     index, url, image, human_ratio, top_ratio, top_mask = selected
     suffix = extension_for(url, image)
     image_hash = hashlib.sha256(image.tobytes()).hexdigest()[:12]
     local_path = args.output / "images" / goods_no / f"selected-{image_hash}{suffix}"
     save_image(image, local_path)
-
-    mask_path: Path | None = None
-    if used_fallback:
-        mask_path = args.output / "masks" / goods_no / "top-mask.png"
-        save_image(Image.fromarray((top_mask * 255).astype(np.uint8), mode="L"), mask_path)
 
     s3_key = None
     if s3_client:
@@ -278,6 +250,7 @@ def process_product(
         "platform": "musinsa",
         "goods_no": goods_no,
         "product_url": product_url,
+        "status": "selected",
         "selected_index": index,
         "selected_url": url,
         "local_path": str(local_path.resolve()),
@@ -285,8 +258,7 @@ def process_product(
         "s3_key": s3_key,
         "human_ratio": human_ratio,
         "top_ratio": top_ratio,
-        "fallback": used_fallback,
-        "mask_path": str(mask_path.resolve()) if mask_path else None,
+        "mask_path": None,
         "checked_images": candidates,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "model": args.model,
@@ -336,9 +308,11 @@ def main() -> int:
                 save_result(results_path, result, args.overwrite)
                 processed += 1
                 print(
-                    f"{goods_no}: selected image {result['selected_index']} "
-                    f"(human={result['human_ratio']:.2%}, top={result['top_ratio']:.2%}, "
-                    f"fallback={result['fallback']})", flush=True,
+                    f"{goods_no}: " + (
+                        f"selected image {result['selected_index']} "
+                        f"(human={result['human_ratio']:.2%}, top={result['top_ratio']:.2%})"
+                        if result["status"] == "selected" else "no person-free gallery image"
+                    ), flush=True,
                 )
             except Exception as exc:
                 failed += 1

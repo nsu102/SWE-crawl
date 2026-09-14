@@ -36,7 +36,7 @@ work/.venv/bin/pip install -r requirements-ml.txt
 work/.venv/bin/python -m src.musinsa.crawl_products --max-products 1000
 ```
 
-상세 이미지 선택기는 대표 썸네일, 상단 갤러리, 하단 상품 상세정보 순서로 이미지를 검사합니다. 사람 없는 상의를 찾으면 선택 이미지만 저장합니다.
+상세 이미지 선택기는 대표 썸네일과 상단 갤러리만 검사합니다. 세로로 긴 하단 상품 상세정보 이미지는 제외합니다. 사람 없는 상의를 찾으면 선택 이미지만 저장하고, 없으면 `status=no_match`로 기록합니다.
 
 ```bash
 # 신규 상품 전체

@@ -12,10 +12,7 @@ class DetailParserTest(unittest.TestCase):
             "props": {"pageProps": {"meta": {"data": {"goodsImages": [
                 {"imageUrl": "/images/detail-1.jpg"},
                 {"imageUrl": "https://image.msscdn.net/images/detail-2.jpg"},
-            ], "goodsContents": (
-                '<div><img src="//image.msscdn.net/images/content-1.jpg">'
-                '<img data-src="/images/content-2.jpg"></div>'
-            )}}}}
+            ], "goodsContents": '<img src="//image.msscdn.net/images/ignored.jpg">'}}}}
         }
         html = (
             b'<script id="__NEXT_DATA__" type="application/json">'
@@ -26,8 +23,6 @@ class DetailParserTest(unittest.TestCase):
             "https://image.msscdn.net/images/main.jpg",
             "https://image.msscdn.net/images/detail-1.jpg",
             "https://image.msscdn.net/images/detail-2.jpg",
-            "https://image.msscdn.net/images/content-1.jpg",
-            "https://image.msscdn.net/images/content-2.jpg",
         ], parse_gallery_urls(html, "https://image.msscdn.net/images/main.jpg"))
 
     def test_deduplicates_urls(self):
