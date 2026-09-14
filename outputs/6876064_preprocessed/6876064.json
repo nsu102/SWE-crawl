@@ -1,0 +1,23 @@
+{
+  "source": "/Users/yunsu/Documents/Codex/2026-09-14/1-57-1-57-1-58/data/musinsa_tops/images/6876064.jpg",
+  "model": "fashn-ai/fashn-human-parser",
+  "class_ids": [
+    3
+  ],
+  "class_labels": [
+    "top"
+  ],
+  "mask_ratio": 0.24084,
+  "crop_box": [
+    12,
+    179,
+    493,
+    591
+  ],
+  "outputs": {
+    "mask": "6876064_mask.png",
+    "transparent": "6876064_transparent.png",
+    "masked": "6876064_masked.jpg",
+    "crop": "6876064_crop.jpg"
+  }
+}
