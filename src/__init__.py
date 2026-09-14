@@ -1,0 +1,1 @@
+"""Fashion similarity data pipeline."""
