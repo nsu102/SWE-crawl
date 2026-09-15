@@ -72,3 +72,69 @@ work/.venv/bin/python -m src.ably.crawl_products --max-products 20
 work/.venv/bin/python -m src.ably.crawl_products \
   --listing-url 'https://mobile.a-bly.com/...' --category-keyword 상의
 ```
+
+## 로컬 검색 백엔드
+
+현재 백엔드는 S3 대신 `storage/`를 사용하고, RDS 대신 Docker의 PostgreSQL + pgvector를 사용합니다. 배포할 때 `DATABASE_URL`과 저장소 구현만 교체할 수 있도록 분리되어 있습니다.
+
+```text
+src/backend/
+├── app.py          # FastAPI 검색·이미지 API
+├── config.py       # 환경변수 설정
+├── db.py           # PostgreSQL/pgvector 접근
+├── ml.py           # Human Parser + FashionCLIP
+└── schema.sql      # DB 스키마와 HNSW 인덱스
+
+src/jobs/
+└── index_catalog.py # 선택 상품 이미지 임베딩·DB 적재
+```
+
+### 1. 설치 및 DB 실행
+
+```bash
+work/.venv/bin/pip install -r requirements-ml.txt -r requirements-backend.txt
+docker compose up -d postgres
+```
+
+기본 접속 정보는 로컬 개발 전용입니다.
+
+```text
+postgresql://fashion:fashion@localhost:5432/fashion
+```
+
+다른 DB를 사용하려면 `.env.example`을 참고하여 `DATABASE_URL`을 설정합니다.
+
+### 2. 상품 임베딩 적재
+
+```bash
+# 먼저 5개만 확인
+work/.venv/bin/python -m src.jobs.index_catalog \
+  --platform musinsa --limit 5
+
+# 선택 완료된 무신사 상품 전체
+work/.venv/bin/python -m src.jobs.index_catalog \
+  --platform musinsa
+```
+
+선택 이미지는 `storage/products/{platform}/{goods_no}.jpg`로 복사되고, 512차원 FashionCLIP 벡터와 상품 정보는 PostgreSQL에 upsert됩니다.
+
+### 3. API 실행
+
+```bash
+work/.venv/bin/uvicorn src.backend.app:app \
+  --host 127.0.0.1 --port 8000 --reload
+```
+
+- API 문서: `http://127.0.0.1:8000/docs`
+- 상태 확인: `GET /health`
+- 이미지 검색: `POST /api/search`
+- 상품 이미지: `GET /media/{platform}/{goods_no}`
+
+검색 예시:
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/search?limit=20&platform=musinsa' \
+  -F 'image=@query.jpg'
+```
+
+검색 사진은 메모리에서 상의만 추출한 후 즉시 버려지며 로컬 디스크에 저장하지 않습니다. 상품 이미지만 `storage/`에 영구 저장됩니다.
