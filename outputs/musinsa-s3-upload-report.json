@@ -1,0 +1,12 @@
+{
+  "platform": "musinsa",
+  "crawled_products": 100,
+  "selected_and_uploaded": 77,
+  "no_match": 23,
+  "s3_prefix": "musinsa/products/",
+  "s3_objects_under_prefix": 77,
+  "s3_total_bytes": 5182358,
+  "missing_in_s3": [],
+  "unexpected_in_s3": [],
+  "verified": true
+}

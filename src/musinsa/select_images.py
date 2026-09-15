@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+from html.parser import HTMLParser
 import io
 import json
 import mimetypes
@@ -33,7 +34,23 @@ IMAGE_BASE = "https://image.msscdn.net"
 HUMAN_LABELS = {"face", "hair", "arms", "hands", "legs", "feet"}
 
 
+def load_project_env(path: Path = Path(".env")) -> None:
+    """Load simple KEY=VALUE entries without overwriting shell variables."""
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value:
+            os.environ.setdefault(key, value)
+
+
 def parse_args() -> argparse.Namespace:
+    load_project_env()
     parser = argparse.ArgumentParser(description="Crawl and select Musinsa detail images")
     parser.add_argument("--products", type=Path, default=Path("data/musinsa/tops/products.csv"))
     parser.add_argument("--output", type=Path, default=Path("data/musinsa/tops/selected"))
@@ -47,13 +64,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--human-threshold", type=float, default=0.005)
     parser.add_argument("--top-threshold", type=float, default=0.05)
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--s3-bucket", default=os.getenv("MUSINSA_S3_BUCKET"))
+    parser.add_argument("--retry-no-match", action="store_true")
+    parser.add_argument("--max-detail-images", type=int, default=20)
+    parser.add_argument(
+        "--s3-bucket",
+        default=os.getenv("MUSINSA_S3_BUCKET") or os.getenv("AWS_BUCKET_NAME"),
+    )
     parser.add_argument("--s3-prefix", default="musinsa/products")
     parser.add_argument("--s3-endpoint-url", default=os.getenv("S3_ENDPOINT_URL"))
     return parser.parse_args()
 
 
-def parse_gallery_urls(body: bytes, thumbnail_url: str | None = None) -> list[str]:
+class _ImageSourceParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "img":
+            return
+        values = dict(attrs)
+        url = values.get("data-src") or values.get("src")
+        if url:
+            self.urls.append(url)
+
+
+def parse_gallery_urls(
+    body: bytes,
+    thumbnail_url: str | None = None,
+    max_detail_images: int = 20,
+) -> list[str]:
     match = NEXT_DATA_RE.search(body)
     if not match:
         raise ValueError("__NEXT_DATA__ missing from product page")
@@ -66,6 +106,7 @@ def parse_gallery_urls(body: bytes, thumbnail_url: str | None = None) -> list[st
             candidate = query.get("state", {}).get("data", {}).get("data", {})
             if candidate.get("goodsImages") is not None:
                 gallery = candidate["goodsImages"]
+                product = candidate
                 break
 
     urls: list[str] = []
@@ -75,7 +116,11 @@ def parse_gallery_urls(body: bytes, thumbnail_url: str | None = None) -> list[st
         url = item.get("imageUrl") if isinstance(item, dict) else None
         if url:
             urls.append(urljoin(IMAGE_BASE, url))
-    # Keep gallery order but avoid downloading a repeated URL.
+    if max_detail_images > 0 and product.get("goodsContents"):
+        parser = _ImageSourceParser()
+        parser.feed(product["goodsContents"])
+        urls.extend(urljoin(IMAGE_BASE, url) for url in parser.urls[:max_detail_images])
+    # Preserve thumbnail -> gallery -> product-detail order and remove duplicates.
     return list(dict.fromkeys(urls))
 
 
@@ -110,6 +155,35 @@ def score_image(
     return human_ratio, top_ratio, top_mask
 
 
+def analysis_views(image: Image.Image) -> list[tuple[Image.Image, tuple[int, int, int, int] | None]]:
+    """Split very tall detail sheets into overlapping viewport-like crops."""
+    if image.height <= image.width * 3:
+        return [(image, None)]
+    window_height = min(image.height, round(image.width * 1.5))
+    step = max(1, round(window_height * 0.50))
+    top_positions = list(range(0, image.height - window_height + 1, step))
+    final_top = image.height - window_height
+    if not top_positions or top_positions[-1] != final_top:
+        top_positions.append(final_top)
+    views = []
+    for top in top_positions:
+        box = (0, top, image.width, top + window_height)
+        views.append((image.crop(box), box))
+    return views
+
+
+def mask_border_ratio(mask: np.ndarray) -> float:
+    """Measure whether the detected garment is cut off by the crop boundary."""
+    band = max(1, round(min(mask.shape) * 0.03))
+    border = np.zeros_like(mask, dtype=bool)
+    border[:band, :] = True
+    border[-band:, :] = True
+    border[:, :band] = True
+    border[:, -band:] = True
+    garment_pixels = int(mask.sum())
+    return float((mask & border).sum() / garment_pixels) if garment_pixels else 1.0
+
+
 def load_completed(path: Path) -> set[str]:
     if not path.exists():
         return set()
@@ -121,6 +195,21 @@ def load_completed(path: Path) -> set[str]:
             except (json.JSONDecodeError, KeyError):
                 continue
     return completed
+
+
+def load_statuses(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    statuses: dict[str, str] = {}
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("goods_no"):
+                statuses[str(row["goods_no"])] = str(row.get("status", ""))
+    return statuses
 
 
 def extension_for(url: str, image: Image.Image) -> str:
@@ -147,7 +236,11 @@ def get_s3_client(args: argparse.Namespace):
         import boto3
     except ImportError as exc:
         raise RuntimeError("S3 upload requires: pip install boto3") from exc
-    return boto3.client("s3", endpoint_url=args.s3_endpoint_url)
+    return boto3.client(
+        "s3",
+        endpoint_url=args.s3_endpoint_url,
+        region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION"),
+    )
 
 
 def upload_s3(client, bucket: str, local_path: Path, key: str) -> None:
@@ -194,34 +287,53 @@ def process_product(
     goods_no = row["goods_no"]
     product_url = row.get("product_url") or f"https://www.musinsa.com/products/{goods_no}"
     page_body = fetcher.get(product_url)
-    urls = parse_gallery_urls(page_body, row.get("thumbnail_url"))
+    urls = parse_gallery_urls(page_body, row.get("thumbnail_url"), args.max_detail_images)
     if not urls:
         raise ValueError("product gallery is empty")
 
     candidates: list[dict[str, Any]] = []
-    selected: tuple[int, str, Image.Image, float, float, np.ndarray] | None = None
+    selected: tuple[
+        int, str, Image.Image, float, float, np.ndarray, tuple[int, int, int, int] | None
+    ] | None = None
 
     for index, url in enumerate(urls):
-        body = fetcher.get(url, referer=product_url)
-        image = Image.open(io.BytesIO(body)).convert("RGB")
-        human_ratio, top_ratio, top_mask = score_image(
-            image, processor, model, device, human_ids, top_ids
-        )
-        candidates.append({
-            "index": index, "url": url, "human_ratio": human_ratio,
-            "top_ratio": top_ratio, "width": image.width, "height": image.height,
-        })
-        current = (index, url, image.copy(), human_ratio, top_ratio, top_mask.copy())
-        # Prefer little/no visible person and a meaningful amount of upper clothing.
-        if human_ratio <= args.human_threshold and top_ratio >= args.top_threshold:
-            selected = current
+        try:
+            body = fetcher.get(url, referer=product_url)
+            image = Image.open(io.BytesIO(body)).convert("RGB")
+        except Exception as exc:
+            candidates.append({"index": index, "url": url, "error": str(exc)})
+            continue
+        matches = []
+        for view, crop_box in analysis_views(image):
+            human_ratio, top_ratio, top_mask = score_image(
+                view, processor, model, device, human_ids, top_ids
+            )
+            border_ratio = mask_border_ratio(top_mask)
+            candidate = {
+                "index": index, "url": url, "human_ratio": human_ratio,
+                "top_ratio": top_ratio, "width": view.width, "height": view.height,
+                "top_border_ratio": border_ratio,
+            }
+            if crop_box:
+                candidate["source_size"] = [image.width, image.height]
+                candidate["crop_box"] = list(crop_box)
+            candidates.append(candidate)
+            # Prefer little/no visible person and a meaningful amount of upper clothing.
+            if human_ratio <= args.human_threshold and top_ratio >= args.top_threshold:
+                matches.append((
+                    index, url, view.copy(), human_ratio, top_ratio, top_mask.copy(), crop_box
+                ))
+        if matches:
+            # A catalog-style garment is surrounded by background rather than cut by crop edges.
+            selected = min(matches, key=lambda item: (mask_border_ratio(item[5]), -item[4]))
             break
     if selected is None:
         return {
             "platform": "musinsa",
             "goods_no": goods_no,
             "product_url": product_url,
-            "status": "no_match",
+            "status": "excluded",
+            "exclude_reason": "no_person_free_top_image",
             "selected_index": None,
             "selected_url": None,
             "local_path": None,
@@ -235,7 +347,7 @@ def process_product(
             "model": args.model,
         }
 
-    index, url, image, human_ratio, top_ratio, top_mask = selected
+    index, url, image, human_ratio, top_ratio, top_mask, crop_box = selected
     suffix = extension_for(url, image)
     image_hash = hashlib.sha256(image.tobytes()).hexdigest()[:12]
     local_path = args.output / "images" / goods_no / f"selected-{image_hash}{suffix}"
@@ -253,6 +365,7 @@ def process_product(
         "status": "selected",
         "selected_index": index,
         "selected_url": url,
+        "selected_crop_box": list(crop_box) if crop_box else None,
         "local_path": str(local_path.resolve()),
         "s3_bucket": args.s3_bucket,
         "s3_key": s3_key,
@@ -267,12 +380,18 @@ def process_product(
 
 def main() -> int:
     args = parse_args()
-    if args.delay < 0 or args.human_threshold < 0 or args.top_threshold < 0:
+    if (
+        args.delay < 0
+        or args.human_threshold < 0
+        or args.top_threshold < 0
+        or args.max_detail_images < 0
+    ):
         raise SystemExit("delay and thresholds must be non-negative")
     args.output = args.output.resolve()
     results_path = args.output / "selections.jsonl"
     errors_path = args.output / "errors.jsonl"
     completed = set() if args.overwrite else load_completed(results_path)
+    statuses = load_statuses(results_path)
     fetcher = Fetcher(args.timeout, args.retries)
     s3_client = get_s3_client(args)
 
@@ -291,6 +410,8 @@ def main() -> int:
         for row in csv.DictReader(stream):
             goods_no = row.get("goods_no", "")
             if args.goods_no and goods_no != args.goods_no:
+                continue
+            if args.retry_no_match and statuses.get(goods_no) not in {"no_match", "excluded"}:
                 continue
             if not start_reached:
                 if goods_no == args.start_after:

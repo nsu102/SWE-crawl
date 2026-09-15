@@ -1,0 +1,72 @@
+[
+  {
+    "goods_no": "7101703",
+    "original_human_ratio": 0.05706,
+    "selected_index": 1,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260819/7101703/detail_7101703_17871047215411_500.jpg"
+  },
+  {
+    "goods_no": "7037384",
+    "original_human_ratio": 0.04418,
+    "selected_index": 2,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260810/7037384/detail_7037384_17878816908991_500.jpg"
+  },
+  {
+    "goods_no": "7008226",
+    "original_human_ratio": 0.10715,
+    "selected_index": 9,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260806/7008226/detail_7008226_17866026190255_500.jpg"
+  },
+  {
+    "goods_no": "7035474",
+    "original_human_ratio": 0.04825,
+    "selected_index": 2,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260810/7035474/detail_7035474_17872754452725_500.jpg"
+  },
+  {
+    "goods_no": "7095079",
+    "original_human_ratio": 0.11674666666666667,
+    "selected_index": 1,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260818/7095079/detail_7095079_17870450630619_500.jpg"
+  },
+  {
+    "goods_no": "7020447",
+    "original_human_ratio": 0.1182,
+    "selected_index": 4,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260807/7020447/detail_7020447_17871348218099_500.jpg"
+  },
+  {
+    "goods_no": "7049998",
+    "original_human_ratio": 0.24619666666666667,
+    "selected_index": 1,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260811/7049998/detail_7049998_17871055022248_500.jpg"
+  },
+  {
+    "goods_no": "6832449",
+    "original_human_ratio": 0.17763333333333334,
+    "selected_index": 3,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260713/6832449/detail_6832449_17853900322758_500.jpg"
+  },
+  {
+    "goods_no": "7011948",
+    "original_human_ratio": 0.06344666666666667,
+    "selected_index": 3,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/goods_img/20260806/7011948/7011948_17866051403881_500.jpg"
+  },
+  {
+    "goods_no": "7020457",
+    "original_human_ratio": 0.09299,
+    "selected_index": 4,
+    "selected_human_ratio": 0.0,
+    "selected_url": "https://image.msscdn.net/images/prd_img/20260807/7020457/detail_7020457_17883346337796_500.jpg"
+  }
+]

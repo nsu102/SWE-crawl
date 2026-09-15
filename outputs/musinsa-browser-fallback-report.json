@@ -1,0 +1,38 @@
+{
+  "crawled": 100,
+  "selected_uploaded": 94,
+  "no_match": 6,
+  "s3_objects": 94,
+  "remaining": [
+    {
+      "goods_no": "7126579",
+      "name": null,
+      "candidates": 4
+    },
+    {
+      "goods_no": "6986873",
+      "name": null,
+      "candidates": 4
+    },
+    {
+      "goods_no": "6341375",
+      "name": null,
+      "candidates": 10
+    },
+    {
+      "goods_no": "6341371",
+      "name": null,
+      "candidates": 10
+    },
+    {
+      "goods_no": "7126210",
+      "name": null,
+      "candidates": 4
+    },
+    {
+      "goods_no": "7007371",
+      "name": null,
+      "candidates": 4
+    }
+  ]
+}

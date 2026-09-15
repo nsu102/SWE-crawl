@@ -48,15 +48,23 @@ work/.venv/bin/python -m src.musinsa.select_images --limit 5
 
 # 특정 상품 재처리
 work/.venv/bin/python -m src.musinsa.select_images --goods-no 7091145 --overwrite
+
+# 기존 no_match만 상품 상세 이미지(기본 최대 20장)까지 재검사하고 S3 업로드
+work/.venv/bin/python -m src.musinsa.select_images --retry-no-match --overwrite
 ```
 
-S3를 사용할 때는 EC2 IAM Role 또는 AWS 자격증명을 설정합니다.
+S3를 사용할 때는 EC2 IAM Role 또는 `.env`에 AWS 자격증명을 설정합니다. `.env`의
+`AWS_BUCKET_NAME`이 설정되어 있으면 `--s3-bucket`은 생략할 수 있습니다.
 
 ```bash
 work/.venv/bin/pip install -r requirements-aws.txt
-work/.venv/bin/python -m src.musinsa.select_images \
-  --s3-bucket YOUR_BUCKET \
-  --s3-prefix musinsa/products
+work/.venv/bin/python -m src.musinsa.select_images --s3-prefix musinsa/products
+```
+
+이미 로컬에 선별된 결과를 S3에 일괄 동기화할 때는 모델을 다시 실행하지 않아도 됩니다.
+
+```bash
+work/.venv/bin/python -m src.jobs.upload_selected
 ```
 
 에이블리는 `src/ably/`에 독립 구현하고 저장 경로와 S3 key는 각각 `data/ably/`, `ably/products/`를 사용합니다.
