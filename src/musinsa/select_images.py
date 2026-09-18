@@ -67,6 +67,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--retry-no-match", action="store_true")
     parser.add_argument("--max-detail-images", type=int, default=20)
     parser.add_argument(
+        "--delete-local-after-upload",
+        action="store_true",
+        help="remove the local selected image after a successful S3 upload",
+    )
+    parser.add_argument(
         "--s3-bucket",
         default=os.getenv("MUSINSA_S3_BUCKET") or os.getenv("AWS_BUCKET_NAME"),
     )
@@ -358,6 +363,11 @@ def process_product(
         s3_key = f"{args.s3_prefix.strip('/')}/{goods_no}/{local_path.name}"
         upload_s3(s3_client, args.s3_bucket, local_path, s3_key)
 
+    local_path_value: str | None = str(local_path.resolve())
+    if args.delete_local_after_upload and s3_key:
+        local_path.unlink()
+        local_path_value = None
+
     return {
         "platform": "musinsa",
         "goods_no": goods_no,
@@ -366,7 +376,7 @@ def process_product(
         "selected_index": index,
         "selected_url": url,
         "selected_crop_box": list(crop_box) if crop_box else None,
-        "local_path": str(local_path.resolve()),
+        "local_path": local_path_value,
         "s3_bucket": args.s3_bucket,
         "s3_key": s3_key,
         "human_ratio": human_ratio,

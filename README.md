@@ -67,6 +67,13 @@ work/.venv/bin/python -m src.musinsa.select_images --s3-prefix musinsa/products
 work/.venv/bin/python -m src.jobs.upload_selected
 ```
 
+무신사 상의 전체 수집은 메타데이터 수집을 완료한 뒤 ML 선별을 이어서 실행합니다.
+S3 업로드 후 로컬 이미지를 삭제하므로 장기 실행 중 로컬 디스크를 채우지 않습니다.
+
+```bash
+scripts/run_musinsa_full.sh
+```
+
 에이블리는 `src/ably/`에 독립 구현하고 저장 경로와 S3 key는 각각 `data/ably/`, `ably/products/`를 사용합니다.
 
 ## 에이블리 실행
