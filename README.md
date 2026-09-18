@@ -37,7 +37,7 @@ work/.venv/bin/pip install -r requirements-ml.txt
 work/.venv/bin/python -m src.musinsa.crawl_products --max-products 1000
 ```
 
-상세 이미지 선택기는 대표 썸네일과 상단 갤러리만 검사합니다. 세로로 긴 하단 상품 상세정보 이미지는 제외합니다. 사람 없는 상의를 찾으면 선택 이미지만 저장하고, 없으면 `status=no_match`로 기록합니다.
+이미지 선택기는 대표 썸네일과 상단 갤러리만 검사합니다. 아래쪽 `상품정보 보기` 영역(`goodsContents`)은 요청 후보에 포함하지 않습니다. 사람 유무와 관계없이 상의가 검출되는 첫 이미지를 저장하고, 상의가 없으면 다음 갤러리 이미지를 확인합니다. 끝까지 상의가 없으면 `status=excluded`로 기록합니다.
 
 ```bash
 # 신규 상품 전체
@@ -49,7 +49,7 @@ work/.venv/bin/python -m src.musinsa.select_images --limit 5
 # 특정 상품 재처리
 work/.venv/bin/python -m src.musinsa.select_images --goods-no 7091145 --overwrite
 
-# 기존 no_match만 상품 상세 이미지(기본 최대 20장)까지 재검사하고 S3 업로드
+# 기존 no_match/excluded만 상단 갤러리 범위에서 재검사하고 S3 업로드
 work/.venv/bin/python -m src.musinsa.select_images --retry-no-match --overwrite
 ```
 

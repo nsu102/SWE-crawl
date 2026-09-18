@@ -7,11 +7,11 @@ from PIL import Image
 
 import numpy as np
 
-from src.musinsa.select_images import analysis_views, mask_border_ratio, parse_gallery_urls, save_result
+from src.musinsa.select_images import mask_border_ratio, parse_gallery_urls, save_result
 
 
-class DetailParserTest(unittest.TestCase):
-    def test_extracts_thumbnail_and_detail_images_in_order(self):
+class GalleryParserTest(unittest.TestCase):
+    def test_extracts_thumbnail_and_gallery_but_ignores_goods_contents(self):
         document = {
             "props": {"pageProps": {"meta": {"data": {"goodsImages": [
                 {"imageUrl": "/images/detail-1.jpg"},
@@ -27,7 +27,6 @@ class DetailParserTest(unittest.TestCase):
             "https://image.msscdn.net/images/main.jpg",
             "https://image.msscdn.net/images/detail-1.jpg",
             "https://image.msscdn.net/images/detail-2.jpg",
-            "https://image.msscdn.net/images/detail-3.jpg",
         ], parse_gallery_urls(html, "https://image.msscdn.net/images/main.jpg"))
 
     def test_deduplicates_urls(self):
@@ -53,13 +52,6 @@ class DetailParserTest(unittest.TestCase):
             rows = [json.loads(line) for line in path.read_text().splitlines()]
             self.assertEqual(2, len(rows))
             self.assertEqual(7, next(row for row in rows if row["goods_no"] == "1")["selected_index"])
-
-    def test_splits_very_tall_detail_image(self):
-        image = Image.new("RGB", (100, 1000))
-        views = analysis_views(image)
-        self.assertGreater(len(views), 1)
-        self.assertEqual((100, 150), views[0][0].size)
-        self.assertEqual((0, 850, 100, 1000), views[-1][1])
 
     def test_penalizes_garment_mask_touching_crop_edges(self):
         centered = np.zeros((100, 100), dtype=bool)
